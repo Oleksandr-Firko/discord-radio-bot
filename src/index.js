@@ -25,6 +25,8 @@ const {
   DISCONNECT_ROLE_ID,
   MUSIC_DIR = path.resolve(process.cwd(), 'music')
 } = process.env;
+const disconnectRoleId = DISCONNECT_ROLE_ID?.trim() ?? '';
+const hasDisconnectRoleConfig = Boolean(disconnectRoleId);
 
 if (!DISCORD_TOKEN || !DISCORD_CLIENT_ID) {
   console.error('Missing DISCORD_TOKEN or DISCORD_CLIENT_ID in environment.');
@@ -131,6 +133,15 @@ function buildPanelContent(guildRadio) {
 function buildControlPanel(guildRadio) {
   const playLabel =
     guildRadio.player.state.status === AudioPlayerStatus.Playing ? '\u23F8 Pause' : '\u25B6 Play';
+  const secondaryControls = [
+    new ButtonBuilder().setCustomId(CONTROL_IDS.NOW).setLabel('\uD83C\uDFB5 Now').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(CONTROL_IDS.RESCAN).setLabel('\uD83D\uDD04 Rescan').setStyle(ButtonStyle.Secondary)
+  ];
+  if (hasDisconnectRoleConfig) {
+    secondaryControls.push(
+      new ButtonBuilder().setCustomId(CONTROL_IDS.DISCONNECT).setLabel('\uD83D\uDD0C Disconnect').setStyle(ButtonStyle.Danger)
+    );
+  }
 
   return [
     new ActionRowBuilder().addComponents(
@@ -139,11 +150,7 @@ function buildControlPanel(guildRadio) {
       new ButtonBuilder().setCustomId(CONTROL_IDS.SKIP).setLabel('\u23ED Skip').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId(CONTROL_IDS.STOP).setLabel('\u23F9 Stop').setStyle(ButtonStyle.Danger)
     ),
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(CONTROL_IDS.NOW).setLabel('\uD83C\uDFB5 Now').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(CONTROL_IDS.RESCAN).setLabel('\uD83D\uDD04 Rescan').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(CONTROL_IDS.DISCONNECT).setLabel('\uD83D\uDD0C Disconnect').setStyle(ButtonStyle.Danger)
-    )
+    new ActionRowBuilder().addComponents(...secondaryControls)
   ];
 }
 
@@ -376,12 +383,12 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         case CONTROL_IDS.DISCONNECT: {
-          if (!DISCONNECT_ROLE_ID) {
+          if (!hasDisconnectRoleConfig) {
             await safeRespond(interaction, { content: 'Disconnect role is not configured. Set DISCONNECT_ROLE_ID in .env.', flags: MessageFlags.Ephemeral });
             return;
           }
 
-          if (!hasRole(interaction.member, DISCONNECT_ROLE_ID)) {
+          if (!hasRole(interaction.member, disconnectRoleId)) {
             await safeRespond(interaction, { content: 'You do not have permission to disconnect the bot.', flags: MessageFlags.Ephemeral });
             return;
           }
