@@ -22,6 +22,7 @@ const {
   DISCORD_TOKEN,
   DISCORD_CLIENT_ID,
   DISCORD_GUILD_ID,
+  DISCONNECT_ROLE_ID,
   MUSIC_DIR = path.resolve(process.cwd(), 'music')
 } = process.env;
 
@@ -48,6 +49,7 @@ const CONTROL_IDS = {
   PREV: 'radio:prev',
   SKIP: 'radio:skip',
   STOP: 'radio:stop',
+  DISCONNECT: 'radio:disconnect',
   NOW: 'radio:now',
   RESCAN: 'radio:rescan'
 };
@@ -74,7 +76,13 @@ async function safeRespond(interaction, payload) {
 
 function getOrCreateGuildRadio(guildId) {
   if (!guildRadios.has(guildId)) {
-    const guildRadio = new GuildRadio({ guildId, playlistStore });
+    const guildRadio = new GuildRadio({
+      guildId,
+      playlistStore,
+      onDisconnected: (disconnectedGuildId) => {
+        deleteControlPanelByGuild(disconnectedGuildId).catch(() => {});
+      }
+    });
     guildRadio.player.on('stateChange', () => {
       queuePanelRefresh(guildId);
     });
@@ -85,6 +93,22 @@ function getOrCreateGuildRadio(guildId) {
 
 function getMemberVoiceChannel(interaction) {
   return interaction.member?.voice?.channel ?? null;
+}
+
+function hasRole(member, roleId) {
+  if (!member || !roleId) {
+    return false;
+  }
+
+  if (member.roles?.cache?.has?.(roleId)) {
+    return true;
+  }
+
+  if (Array.isArray(member.roles)) {
+    return member.roles.includes(roleId);
+  }
+
+  return false;
 }
 
 function getPlaybackStatus(guildRadio) {
@@ -117,7 +141,8 @@ function buildControlPanel(guildRadio) {
     ),
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(CONTROL_IDS.NOW).setLabel('\uD83C\uDFB5 Now').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(CONTROL_IDS.RESCAN).setLabel('\uD83D\uDD04 Rescan').setStyle(ButtonStyle.Secondary)
+      new ButtonBuilder().setCustomId(CONTROL_IDS.RESCAN).setLabel('\uD83D\uDD04 Rescan').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(CONTROL_IDS.DISCONNECT).setLabel('\uD83D\uDD0C Disconnect').setStyle(ButtonStyle.Danger)
     )
   ];
 }
@@ -175,6 +200,32 @@ async function refreshControlPanelByGuild(guildId) {
     });
   } catch {
     controlPanels.delete(guildId);
+  }
+}
+
+async function deleteControlPanelByGuild(guildId) {
+  const panel = controlPanels.get(guildId);
+  controlPanels.delete(guildId);
+
+  const timer = panelRefreshTimers.get(guildId);
+  if (timer) {
+    clearTimeout(timer);
+    panelRefreshTimers.delete(guildId);
+  }
+
+  if (!panel) {
+    return;
+  }
+
+  try {
+    const channel = await client.channels.fetch(panel.channelId);
+    if (!channel?.isTextBased?.()) {
+      return;
+    }
+    const message = await channel.messages.fetch(panel.messageId);
+    await message.delete().catch(() => {});
+  } catch {
+    // Panel may already be deleted or channel unavailable.
   }
 }
 
@@ -321,6 +372,27 @@ client.on('interactionCreate', async (interaction) => {
           const tracks = await library.scan();
           await syncControlPanel(interaction, guildRadio);
           await safeRespond(interaction, { content: `Rescanned library. Found **${tracks.length}** track(s).`, flags: MessageFlags.Ephemeral });
+          return;
+        }
+
+        case CONTROL_IDS.DISCONNECT: {
+          if (!DISCONNECT_ROLE_ID) {
+            await safeRespond(interaction, { content: 'Disconnect role is not configured. Set DISCONNECT_ROLE_ID in .env.', flags: MessageFlags.Ephemeral });
+            return;
+          }
+
+          if (!hasRole(interaction.member, DISCONNECT_ROLE_ID)) {
+            await safeRespond(interaction, { content: 'You do not have permission to disconnect the bot.', flags: MessageFlags.Ephemeral });
+            return;
+          }
+
+          if (!guildRadio.connection) {
+            await safeRespond(interaction, { content: 'Bot is not connected to a voice channel.', flags: MessageFlags.Ephemeral });
+            return;
+          }
+
+          guildRadio.leave();
+          await safeRespond(interaction, { content: 'Bot disconnected from voice channel.', flags: MessageFlags.Ephemeral });
           return;
         }
 
