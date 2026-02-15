@@ -13,10 +13,11 @@ const {
 } = require('@discordjs/voice');
 
 class GuildRadio {
-  constructor({ guildId, playlistStore, logger = console }) {
+  constructor({ guildId, playlistStore, logger = console, onDisconnected = null }) {
     this.guildId = guildId;
     this.playlistStore = playlistStore;
     this.logger = logger;
+    this.onDisconnected = typeof onDisconnected === 'function' ? onDisconnected : null;
 
     this.connection = null;
     this.channelId = null;
@@ -171,6 +172,16 @@ class GuildRadio {
     this.currentTrack = null;
   }
 
+  leave() {
+    this.stop();
+    if (this.connection) {
+      this.connection.destroy();
+      this.connection = null;
+    }
+    this.channelId = null;
+    this.#notifyDisconnected();
+  }
+
   pause() {
     if (this.player.state.status !== AudioPlayerStatus.Playing) {
       return false;
@@ -263,12 +274,22 @@ class GuildRadio {
       } catch {
         connection.destroy();
         this.connection = null;
+        this.channelId = null;
+        this.#notifyDisconnected();
       }
     });
 
     connection.on('error', (err) => {
       this.logger.error(`[${this.guildId}] Voice connection error:`, err);
     });
+  }
+
+  #notifyDisconnected() {
+    try {
+      this.onDisconnected?.(this.guildId);
+    } catch (err) {
+      this.logger.error(`[${this.guildId}] Disconnection callback failed:`, err);
+    }
   }
 }
 

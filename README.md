@@ -9,6 +9,9 @@ A modular Discord music bot that plays local audio files continuously in voice c
 - Continuous play with loop-to-start behavior at end of list
 - Per-guild playback state (multiple servers independently)
 - Slash commands: `/join`, `/radio`, `/panel`, `/stop`, `/prev`, `/skip`, `/now`, `/rescan`
+- Live control panel with buttons (Play/Pause, Prev, Skip, Stop, Now, Rescan)
+- Role-restricted Disconnect button in control panel
+- Fail-fast dependency checks on startup (DAVE, Opus, FFmpeg)
 - Modular structure ready for future playlist expansion
 
 ## Project Structure
@@ -51,11 +54,13 @@ ffmpeg -version
 DISCORD_TOKEN=your_bot_token
 DISCORD_CLIENT_ID=your_application_client_id
 DISCORD_GUILD_ID=optional_test_guild_id
+DISCONNECT_ROLE_ID=optional_role_id_allowed_to_disconnect_bot
 MUSIC_DIR=C:/absolute/path/to/your/music
 ```
 
 - Use `DISCORD_GUILD_ID` for faster guild-scoped command updates while developing.
 - Omit it to register global commands.
+- Set `DISCONNECT_ROLE_ID` to restrict the Disconnect button to one role.
 
 4. Install required voice codec dependencies:
 
@@ -89,11 +94,33 @@ When inviting the bot, include these permissions.
 - `/join`: bot joins your current voice channel
 - `/radio`: starts or continues playback
 - `/panel`: posts or refreshes a single live control panel in the current channel
-- `/stop`: stops playback
+- `/stop`: stops playback (does not auto-skip to next track)
 - `/prev`: plays previous track
 - `/skip`: skips current track (advances to next)
 - `/now`: shows current track title
 - `/rescan`: rescans `MUSIC_DIR` for new files
+
+## Control Panel
+
+- The bot keeps one live control panel per server and edits it instead of posting new panels.
+- Control panel is deleted automatically when bot disconnects from voice channel.
+- Use `/panel` anytime to re-post or refresh panel in the current channel.
+- Buttons:
+  - `Play/Pause`: toggles playback state (`Play`/`Pause`/`Resume`)
+  - `Prev`: plays previous track
+  - `Skip`: plays next track
+  - `Stop`: stops playback
+  - `Now`: shows now playing
+  - `Rescan`: rescans local music library
+  - `Disconnect`: disconnects bot from voice channel (allowed role only)
+
+## Startup Checks
+
+On startup, bot runs dependency preflight and exits early if required runtime pieces are missing:
+
+- `@snazzah/davey` (required by `@discordjs/voice@0.19.x`)
+- Opus encoder (`@discordjs/opus` or `opusscript`)
+- `ffmpeg` in `PATH` (or `FFMPEG_PATH` if set)
 
 ## Notes for Future Playlist Support
 
