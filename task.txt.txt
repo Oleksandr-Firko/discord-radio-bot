@@ -1,0 +1,60 @@
+TASK: Build a Discord music bot in Node.js that plays local audio files in voice channels with continuous play and loop. Code should be modular and easily extended to support playlists later.
+
+REQUIREMENTS:
+1) Use Node.js and discord.js v14 or later with @discordjs/voice library.
+2) The bot must:
+   - Join a user’s voice channel on command.
+   - Play all audio files from a specified local directory (MUSIC_DIR).
+   - Automatically play the next track when the current one ends.
+   - Loop back to the first track when the end of the list is reached.
+   - Respond to slash commands: /join, /radio, /stop, /skip, /now, /rescan.
+   - Maintain separate playback state per guild (multiple servers independently).
+   - Be structured so playlists can be added later with minimal changes.
+
+CONSTRAINTS:
+- Audio must be from local files (not YouTube or online streaming).
+- FFmpeg must be used for processing local audio files.
+- Use AudioPlayer and AudioResource components per Discord voice API guides. :contentReference[oaicite:0]{index=0}
+
+DELIVERABLES:
+1) Project structure with:
+   - src/index.js (main bot)
+   - src/commands.js (slash command registration)
+   - src/radio/Library.js (scans MUSIC_DIR and lists audio files)
+   - src/radio/PlaylistStore.js (abstracts playlists, initially returns full list)
+   - src/radio/GuildRadio.js (manages play loop and audio state per guild)
+
+2) Discord slash command integration:
+   - /join: bot joins user’s voice channel
+   - /radio: start or continue music playback
+   - /stop: stop playback
+   - /skip: skip current track
+   - /now: show current track title
+   - /rescan: rescan directory for new files
+
+3) Continuous play logic:
+   - Listen for AudioPlayerState Idle event to trigger next track.
+   - Automatically loop to first track at end of list.
+   - Support skipping by advancing index and playing next.
+
+4) Audio playback:
+   - Ensure bot has relevant voice permissions (“Connect”, “Speak”).
+   - Use FFmpeg if needed to handle various formats (mp3, wav, ogg). :contentReference[oaicite:1]{index=1}
+
+5) Error handling:
+   - Recover gracefully if a file fails to play (error event → skip next).
+   - Ensure voice connection re-establishment if connection drops.
+
+6) README with setup instructions:
+   - Installing dependencies
+   - Setting up FFmpeg on host system
+   - Inviting bot with required intents and voice permissions
+   - Running bot locally or on a server
+
+SUCCESS CRITERIA:
+- Bot joins voice channel and plays all local tracks continuously with loop.
+- Slash commands function correctly.
+- File list updates after /rescan command.
+- Code is modular and ready for future playlist extensions.
+
+END TASK
