@@ -112,7 +112,7 @@ When inviting the bot, include these permissions.
   - `Stop`: stops playback
   - `Now`: shows now playing
   - `Rescan`: rescans local music library
-  - `Disconnect`: disconnects bot from voice channel (allowed role only)
+  - `Disconnect`: disconnects bot from voice channel (allowed role only, shown only if `DISCONNECT_ROLE_ID` is set)
 
 ## Startup Checks
 
