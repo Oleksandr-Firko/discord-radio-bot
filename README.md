@@ -10,7 +10,7 @@ A modular Discord music bot that plays local audio files continuously in voice c
 - Per-guild playback state (multiple servers independently)
 - Slash commands: `/join`, `/radio`, `/panel`, `/stop`, `/prev`, `/skip`, `/now`, `/rescan`
 - Live control panel with buttons (Play/Pause, Prev, Skip, Stop, Now, Rescan)
-- Role-restricted Disconnect button in control panel
+- Role-based permissions for management and playback actions
 - Fail-fast dependency checks on startup (DAVE, Opus, FFmpeg)
 - Modular structure ready for future playlist expansion
 
@@ -54,13 +54,16 @@ ffmpeg -version
 DISCORD_TOKEN=your_bot_token
 DISCORD_CLIENT_ID=your_application_client_id
 DISCORD_GUILD_ID=optional_test_guild_id
-DISCONNECT_ROLE_ID=optional_role_id_allowed_to_disconnect_bot
+MANAGE_ROLE_ID=optional_role_id_for_join_radio_panel_stop_rescan_disconnect
+CONTROL_ROLE_ID=optional_role_id_for_play_pause_prev_skip_now
 MUSIC_DIR=C:/absolute/path/to/your/music
 ```
 
 - Use `DISCORD_GUILD_ID` for faster guild-scoped command updates while developing.
 - Omit it to register global commands.
-- Set `DISCONNECT_ROLE_ID` to restrict the Disconnect button to one role.
+- `MANAGE_ROLE_ID` controls critical actions (`join/radio/panel/stop/rescan/disconnect`).
+- `CONTROL_ROLE_ID` controls playback actions (`play-pause/prev/skip/now`).
+- `MANAGE_ROLE_ID` also has `CONTROL` permissions automatically.
 
 4. Install required voice codec dependencies:
 
@@ -100,6 +103,11 @@ When inviting the bot, include these permissions.
 - `/now`: shows current track title
 - `/rescan`: rescans `MUSIC_DIR` for new files
 
+Role access:
+- Manage role: `/join`, `/radio`, `/panel`, `/stop`, `/rescan`, `Disconnect`
+- Control role: `Play/Pause`, `/prev`, `/skip`, `/now`
+- Manage role inherits all control permissions
+
 ## Control Panel
 
 - The bot keeps one live control panel per server and edits it instead of posting new panels.
@@ -112,7 +120,7 @@ When inviting the bot, include these permissions.
   - `Stop`: stops playback
   - `Now`: shows now playing
   - `Rescan`: rescans local music library
-  - `Disconnect`: disconnects bot from voice channel (allowed role only, shown only if `DISCONNECT_ROLE_ID` is set)
+  - `Disconnect`: disconnects bot from voice channel (shown only if `MANAGE_ROLE_ID` is set)
 
 ## Startup Checks
 
