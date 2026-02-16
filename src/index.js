@@ -22,11 +22,15 @@ const {
   DISCORD_TOKEN,
   DISCORD_CLIENT_ID,
   DISCORD_GUILD_ID,
-  DISCONNECT_ROLE_ID,
+  MANAGE_ROLE_ID,
+  CONTROL_ROLE_ID,
   MUSIC_DIR = path.resolve(process.cwd(), 'music')
 } = process.env;
-const disconnectRoleId = DISCONNECT_ROLE_ID?.trim() ?? '';
-const hasDisconnectRoleConfig = Boolean(disconnectRoleId);
+const manageRoleId = MANAGE_ROLE_ID?.trim() ?? '';
+const controlRoleId = CONTROL_ROLE_ID?.trim() ?? '';
+const hasManageRoleConfig = Boolean(manageRoleId);
+const hasControlRoleConfig = Boolean(controlRoleId);
+const hasManageCapabilityConfig = hasManageRoleConfig || hasControlRoleConfig;
 
 if (!DISCORD_TOKEN || !DISCORD_CLIENT_ID) {
   console.error('Missing DISCORD_TOKEN or DISCORD_CLIENT_ID in environment.');
@@ -57,16 +61,18 @@ const CONTROL_IDS = {
 };
 
 async function safeRespond(interaction, payload) {
+  const normalizedPayload = normalizeInteractionPayload(payload);
   try {
     if (interaction.deferred) {
-      await interaction.editReply(payload);
+      const { flags, ...editPayload } = normalizedPayload;
+      await interaction.editReply(editPayload);
       return;
     }
     if (interaction.replied) {
-      await interaction.followUp(payload);
+      await interaction.followUp(normalizedPayload);
       return;
     }
-    await interaction.reply(payload);
+    await interaction.reply(normalizedPayload);
   } catch (err) {
     if (err?.code === 10062) {
       console.warn('Cannot respond: interaction token is no longer valid.');
@@ -74,6 +80,16 @@ async function safeRespond(interaction, payload) {
     }
     throw err;
   }
+}
+
+function normalizeInteractionPayload(payload) {
+  const base = typeof payload === 'string' ? { content: payload } : { ...payload };
+  const flags = base.flags ?? 0;
+  const ephemeral = Boolean(flags & MessageFlags.Ephemeral);
+  if (!ephemeral) {
+    base.flags = flags | MessageFlags.SuppressNotifications;
+  }
+  return base;
 }
 
 function getOrCreateGuildRadio(guildId) {
@@ -113,6 +129,42 @@ function hasRole(member, roleId) {
   return false;
 }
 
+function canManage(member) {
+  if (!hasManageRoleConfig) {
+    if (!hasControlRoleConfig) {
+      return true;
+    }
+    return hasRole(member, controlRoleId);
+  }
+  return hasRole(member, manageRoleId);
+}
+
+function canControl(member) {
+  if (canManage(member)) {
+    return true;
+  }
+  if (!hasControlRoleConfig) {
+    return false;
+  }
+  return hasRole(member, controlRoleId);
+}
+
+function getPermissionMessage(level) {
+  if (level === 'manage') {
+    return 'You do not have permission to manage this bot.';
+  }
+  return 'You do not have permission to control playback.';
+}
+
+async function ensurePermission(interaction, level) {
+  const allowed = level === 'manage' ? canManage(interaction.member) : canControl(interaction.member);
+  if (allowed) {
+    return true;
+  }
+  await safeRespond(interaction, { content: getPermissionMessage(level), flags: MessageFlags.Ephemeral });
+  return false;
+}
+
 function getPlaybackStatus(guildRadio) {
   const status = guildRadio.player.state.status;
   if (status === AudioPlayerStatus.Playing) {
@@ -137,7 +189,7 @@ function buildControlPanel(guildRadio) {
     new ButtonBuilder().setCustomId(CONTROL_IDS.NOW).setLabel('\uD83C\uDFB5 Now').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(CONTROL_IDS.RESCAN).setLabel('\uD83D\uDD04 Rescan').setStyle(ButtonStyle.Secondary)
   ];
-  if (hasDisconnectRoleConfig) {
+  if (hasManageCapabilityConfig) {
     secondaryControls.push(
       new ButtonBuilder().setCustomId(CONTROL_IDS.DISCONNECT).setLabel('\uD83D\uDD0C Disconnect').setStyle(ButtonStyle.Danger)
     );
@@ -181,7 +233,7 @@ async function upsertControlPanel({ guildId, channel, guildRadio }) {
     }
   }
 
-  const sent = await channel.send(payload);
+  const sent = await channel.send({ ...payload, flags: MessageFlags.SuppressNotifications });
   controlPanels.set(guildId, { channelId: channel.id, messageId: sent.id });
   return sent;
 }
@@ -296,6 +348,10 @@ client.on('interactionCreate', async (interaction) => {
     try {
       switch (interaction.customId) {
         case CONTROL_IDS.PLAY: {
+          if (!(await ensurePermission(interaction, 'control'))) {
+            return;
+          }
+
           if (!guildRadio.connection) {
             if (!memberVoiceChannel || memberVoiceChannel.type !== ChannelType.GuildVoice) {
               await safeRespond(interaction, { content: 'Join a voice channel first.', flags: MessageFlags.Ephemeral });
@@ -336,6 +392,10 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         case CONTROL_IDS.SKIP: {
+          if (!(await ensurePermission(interaction, 'control'))) {
+            return;
+          }
+
           const skipped = await guildRadio.skip();
           if (!skipped) {
             await safeRespond(interaction, { content: 'Nothing to skip right now.', flags: MessageFlags.Ephemeral });
@@ -348,6 +408,10 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         case CONTROL_IDS.PREV: {
+          if (!(await ensurePermission(interaction, 'control'))) {
+            return;
+          }
+
           const previous = await guildRadio.prev();
           if (!previous) {
             const reason = guildRadio.getLastPlaybackError();
@@ -362,6 +426,10 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         case CONTROL_IDS.STOP: {
+          if (!(await ensurePermission(interaction, 'manage'))) {
+            return;
+          }
+
           guildRadio.stop();
           await syncControlPanel(interaction, guildRadio);
           await safeRespond(interaction, { content: 'Playback stopped.', flags: MessageFlags.Ephemeral });
@@ -369,6 +437,10 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         case CONTROL_IDS.NOW: {
+          if (!(await ensurePermission(interaction, 'control'))) {
+            return;
+          }
+
           const now = guildRadio.nowPlaying();
           await syncControlPanel(interaction, guildRadio);
           await safeRespond(interaction, { content: now ? `Now playing: **${now.title}**` : 'Nothing is playing right now.', flags: MessageFlags.Ephemeral });
@@ -376,6 +448,10 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         case CONTROL_IDS.RESCAN: {
+          if (!(await ensurePermission(interaction, 'manage'))) {
+            return;
+          }
+
           const tracks = await library.scan();
           await syncControlPanel(interaction, guildRadio);
           await safeRespond(interaction, { content: `Rescanned library. Found **${tracks.length}** track(s).`, flags: MessageFlags.Ephemeral });
@@ -383,13 +459,7 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         case CONTROL_IDS.DISCONNECT: {
-          if (!hasDisconnectRoleConfig) {
-            await safeRespond(interaction, { content: 'Disconnect role is not configured. Set DISCONNECT_ROLE_ID in .env.', flags: MessageFlags.Ephemeral });
-            return;
-          }
-
-          if (!hasRole(interaction.member, disconnectRoleId)) {
-            await safeRespond(interaction, { content: 'You do not have permission to disconnect the bot.', flags: MessageFlags.Ephemeral });
+          if (!(await ensurePermission(interaction, 'manage'))) {
             return;
           }
 
@@ -429,6 +499,10 @@ client.on('interactionCreate', async (interaction) => {
   try {
     switch (interaction.commandName) {
       case 'join': {
+        if (!(await ensurePermission(interaction, 'manage'))) {
+          return;
+        }
+
         if (!memberVoiceChannel || memberVoiceChannel.type !== ChannelType.GuildVoice) {
           await safeRespond(interaction, { content: 'Join a voice channel first.', flags: MessageFlags.Ephemeral });
           return;
@@ -447,6 +521,10 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       case 'radio': {
+        if (!(await ensurePermission(interaction, 'manage'))) {
+          return;
+        }
+
         if (!guildRadio.connection) {
           if (!memberVoiceChannel || memberVoiceChannel.type !== ChannelType.GuildVoice) {
             await safeRespond(interaction, { content: 'Join a voice channel first, or run /join.', flags: MessageFlags.Ephemeral });
@@ -478,6 +556,10 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       case 'panel': {
+        if (!(await ensurePermission(interaction, 'manage'))) {
+          return;
+        }
+
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         await syncControlPanel(interaction, guildRadio);
         await safeRespond(interaction, { content: 'Control panel posted/updated in this channel.' });
@@ -485,6 +567,10 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       case 'stop': {
+        if (!(await ensurePermission(interaction, 'manage'))) {
+          return;
+        }
+
         guildRadio.stop();
         await syncControlPanel(interaction, guildRadio);
         await safeRespond(interaction, 'Playback stopped.');
@@ -492,6 +578,10 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       case 'skip': {
+        if (!(await ensurePermission(interaction, 'control'))) {
+          return;
+        }
+
         const skipped = await guildRadio.skip();
         if (!skipped) {
           await safeRespond(interaction, { content: 'Nothing to skip right now.', flags: MessageFlags.Ephemeral });
@@ -504,6 +594,10 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       case 'prev': {
+        if (!(await ensurePermission(interaction, 'control'))) {
+          return;
+        }
+
         const previous = await guildRadio.prev();
         if (!previous) {
           const reason = guildRadio.getLastPlaybackError();
@@ -518,6 +612,10 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       case 'now': {
+        if (!(await ensurePermission(interaction, 'control'))) {
+          return;
+        }
+
         const now = guildRadio.nowPlaying();
         await syncControlPanel(interaction, guildRadio);
         await safeRespond(interaction, now ? `Now playing: **${now.title}**` : 'Nothing is playing right now.');
@@ -525,6 +623,10 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       case 'rescan': {
+        if (!(await ensurePermission(interaction, 'manage'))) {
+          return;
+        }
+
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const tracks = await library.scan();
         await syncControlPanel(interaction, guildRadio);
