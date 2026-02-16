@@ -65,6 +65,28 @@ MUSIC_DIR=C:/absolute/path/to/your/music
 - `CONTROL_ROLE_ID` controls playback actions (`play-pause/prev/skip/now`).
 - `MANAGE_ROLE_ID` also has `CONTROL` permissions automatically.
 
+## Role Access (Read This First)
+
+### Access Matrix
+
+| Action | Required role |
+|---|---|
+| `/join`, `/radio`, `/panel`, `/stop`, `/rescan`, `Disconnect` | `MANAGE_ROLE_ID` |
+| `Play/Pause`, `/prev`, `/skip`, `/now` | `CONTROL_ROLE_ID` |
+| `CONTROL` actions for manage users | `MANAGE_ROLE_ID` (inherited) |
+
+### Important Behavior
+
+- If **both** `MANAGE_ROLE_ID` and `CONTROL_ROLE_ID` are set:
+  - Manage actions: only `MANAGE_ROLE_ID`
+  - Control actions: `CONTROL_ROLE_ID` + `MANAGE_ROLE_ID`
+- If **only** `CONTROL_ROLE_ID` is set:
+  - In current implementation, this role also gets manage actions (fallback mode).
+- If neither role is set:
+  - Access is open for everyone.
+
+> Recommended production setup: set **both** `MANAGE_ROLE_ID` and `CONTROL_ROLE_ID`.
+
 4. Install required voice codec dependencies:
 
 ```bash
@@ -103,7 +125,7 @@ When inviting the bot, include these permissions.
 - `/now`: shows current track title
 - `/rescan`: rescans `MUSIC_DIR` for new files
 
-Role access:
+Role access summary:
 - Manage role: `/join`, `/radio`, `/panel`, `/stop`, `/rescan`, `Disconnect`
 - Control role: `Play/Pause`, `/prev`, `/skip`, `/now`
 - Manage role inherits all control permissions
@@ -120,7 +142,7 @@ Role access:
   - `Stop`: stops playback
   - `Now`: shows now playing
   - `Rescan`: rescans local music library
-  - `Disconnect`: disconnects bot from voice channel (shown only if `MANAGE_ROLE_ID` is set)
+  - `Disconnect`: disconnects bot from voice channel (shown when role-based access is configured)
 
 ## Startup Checks
 
